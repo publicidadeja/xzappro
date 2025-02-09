@@ -114,6 +114,7 @@ app.post('/process-queue', async (req, res) => {
     }
 });
 
+
 app.post('/send-message', async (req, res) => {
     const { deviceId, number, message, mediaPath } = req.body;
 
@@ -131,14 +132,21 @@ app.post('/send-message', async (req, res) => {
         // Enviar arquivo se existir
         if (mediaPath) {
             try {
+                // Verifica se o arquivo existe
                 if (!fs.existsSync(mediaPath)) {
-                    throw new Error('Arquivo não encontrado no caminho especificado.');
+                    throw new Error('Arquivo não encontrado: ' + mediaPath);
                 }
 
+                console.log('Enviando mídia:', mediaPath);
                 const media = MessageMedia.fromFilePath(mediaPath);
+                
+                // Envia a mídia primeiro
                 await client.sendMessage(formattedNumber, media);
+                
                 // Pequeno intervalo após envio de mídia
                 await new Promise(resolve => setTimeout(resolve, 2000));
+                
+                console.log('Mídia enviada com sucesso');
             } catch (mediaError) {
                 console.error('Erro ao enviar mídia:', mediaError);
                 return res.status(500).json({
@@ -148,14 +156,23 @@ app.post('/send-message', async (req, res) => {
             }
         }
 
-        // Enviar mensagem de texto (sempre envia, mesmo que haja mídia)
-        if (message) {
-            await client.sendMessage(formattedNumber, message);
+        // Enviar mensagem de texto se existir
+        if (message && message.trim()) {
+            try {
+                await client.sendMessage(formattedNumber, message);
+                console.log('Mensagem de texto enviada com sucesso');
+            } catch (messageError) {
+                console.error('Erro ao enviar mensagem:', messageError);
+                return res.status(500).json({
+                    success: false,
+                    message: 'Erro ao enviar mensagem: ' + messageError.message
+                });
+            }
         }
 
         res.json({ success: true });
     } catch (error) {
-        console.error('Erro ao enviar mensagem:', error);
+        console.error('Erro geral:', error);
         res.status(500).json({
             success: false,
             message: error.message

@@ -15,7 +15,7 @@ use GuzzleHttp\Client;
 use GuzzleHttp\Exception\RequestException;
 
 // Chave da API da Anthropic (substitua pela sua chave real)
-$api_key = 'MINHAS_CHAVE_AQUI';
+$api_key = 'SUA_API_AQUI';
 
 // Endpoint da API da Anthropic (Claude 3.5 Haiku)
 $api_url = 'https://api.anthropic.com/v1/messages'; // Verifique a documentação da Anthropic para o endpoint correto

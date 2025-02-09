@@ -1,9 +1,11 @@
 <?php
+
 // Mantendo todo o código PHP original no topo
 session_start();
 include '../includes/auth.php';
 redirecionarSeNaoLogado();
 include '../includes/db.php';
+
 
 // Consultas originais mantidas
 $stmt = $pdo->prepare("SELECT nome FROM usuarios WHERE id = ?");
@@ -30,6 +32,7 @@ $ultimo_lead = $stmt->fetch();
 <!DOCTYPE html>
 <html lang="pt-br">
 <head>
+    
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Dashboard - ZapLocal</title>
@@ -286,5 +289,6 @@ $ultimo_lead = $stmt->fetch();
     <!-- Scripts -->
     <script src="https://code.jquery.com/jquery-3.6.0.min.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
+
 </body>
 </html>

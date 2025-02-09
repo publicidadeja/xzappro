@@ -65,16 +65,11 @@ $arquivo_path = ''; // Inicializa o caminho do arquivo
 
 // Processamento do formulário
 if ($_SERVER['REQUEST_METHOD'] == 'POST') {
-    // Validações iniciais (já existentes)
-    if (empty($_POST['dispositivo_id'])) {
-        $erros_envio[] = "Selecione um dispositivo para envio.";
-    }
+    $dispositivo_id = $_POST['dispositivo_id'];
+    $mensagem = $_POST['mensagem'];
+    $arquivo_path = '';
 
-    if (empty($_POST['mensagem'])) {
-        $erros_envio[] = "O campo mensagem não pode estar vazio.";
-    }
-
-    // Processamento do upload do arquivo
+    // Processar upload do arquivo
     if ($_FILES['arquivo']['error'] == UPLOAD_ERR_OK) {
         $nome_temporario = $_FILES['arquivo']['tmp_name'];
         $nome_arquivo = $_FILES['arquivo']['name'];
@@ -82,34 +77,79 @@ if ($_SERVER['REQUEST_METHOD'] == 'POST') {
         $extensoes_permitidas = ['jpg', 'jpeg', 'png', 'pdf', 'doc', 'docx'];
 
         if (in_array(strtolower($extensao), $extensoes_permitidas)) {
-            $diretorio_destino = '../uploads/'; // Crie este diretório se não existir
-            $nome_final = uniqid() . '.' . $extensao; // Nome único para evitar conflitos
+            $diretorio_destino = '../uploads/';
+            $nome_final = uniqid() . '.' . $extensao;
             $arquivo_path = $diretorio_destino . $nome_final;
 
             if (move_uploaded_file($nome_temporario, $arquivo_path)) {
                 // Arquivo movido com sucesso
-                // Agora, $arquivo_path contém o caminho para o arquivo no servidor
             } else {
                 $erros_envio[] = "Erro ao mover o arquivo para o servidor.";
-                $arquivo_path = ''; // Limpa o caminho em caso de erro
+                $arquivo_path = '';
             }
-        } else {
-            $erros_envio[] = "Extensão de arquivo não permitida.";
         }
-    } elseif ($_FILES['arquivo']['error'] != UPLOAD_ERR_NO_FILE) {
-        // Se houve um erro diferente de "nenhum arquivo enviado"
-        $erros_envio[] = "Erro no upload do arquivo: " . $_FILES['arquivo']['error'];
     }
 
-    // Verificar status do dispositivo (já existente)
-    if (!empty($_POST['dispositivo_id'])) {
-        $stmt = $pdo->prepare("SELECT status FROM dispositivos WHERE device_id = ? AND usuario_id = ?");
-        $stmt->execute([$_POST['dispositivo_id'], $_SESSION['usuario_id']]);
-        $device = $stmt->fetch();
+    // Preparar dados para envio em massa
+    foreach ($leads as $lead) {
+        $numero = formatarNumeroWhatsApp($lead['numero']);
+        $mensagem_personalizada = str_replace('{nome}', $lead['nome'], $mensagem);
 
-        if (!$device || $device['status'] !== 'CONNECTED') {
-            $erros_envio[] = "Dispositivo não está conectado. Por favor, reconecte o dispositivo.";
+        $data = [
+            'deviceId' => $dispositivo_id,
+            'number' => $numero,
+            'message' => $mensagem_personalizada
+        ];
+
+        // Adicionar arquivo se existir
+        if (!empty($arquivo_path) && file_exists($arquivo_path)) {
+            $data['mediaPath'] = $arquivo_path;
         }
+
+        // Enviar mensagem via API
+        $ch = curl_init('http://localhost:3000/send-message');
+        curl_setopt_array($ch, [
+            CURLOPT_POST => true,
+            CURLOPT_POSTFIELDS => json_encode($data),
+            CURLOPT_HTTPHEADER => ['Content-Type: application/json'],
+            CURLOPT_RETURNTRANSFER => true,
+            CURLOPT_TIMEOUT => 30
+        ]);
+
+        $response = curl_exec($ch);
+        $http_code = curl_getinfo($ch, CURLINFO_HTTP_CODE);
+
+        if ($response === false) {
+            $erros_envio[] = "Erro ao enviar para {$lead['numero']}: " . curl_error($ch);
+            continue;
+        }
+
+        $result = json_decode($response, true);
+
+        if ($http_code == 200 && isset($result['success']) && $result['success']) {
+            // Atualizar status do lead
+            $stmt = $pdo->prepare("UPDATE leads_enviados SET 
+                status = 'ENVIADO',
+                data_envio = NOW(),
+                mensagem = ?,
+                arquivo = ?
+                WHERE id = ?");
+            $stmt->execute([
+                $mensagem_personalizada,
+                basename($arquivo_path),
+                $lead['id']
+            ]);
+            
+            $total_enviados++;
+        } else {
+            $error_message = isset($result['message']) ? $result['message'] : 'Erro desconhecido';
+            $erros_envio[] = "Erro ao enviar para {$lead['numero']}: {$error_message}";
+        }
+
+        curl_close($ch);
+        
+        // Intervalo entre envios para evitar bloqueio
+        sleep(rand(2, 5));
     }
 }
 ?>

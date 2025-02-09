@@ -33,7 +33,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'OPTIONS') {
 }
 
 // Chave API
-$CLAUDE_API_KEY = 'MINHAS_CHAVE_AQUI';
+$CLAUDE_API_KEY = 'SUA_API_AQUI';
 
 // Função para extrair conteúdo da mensagem
 function extractMessageContent($response_data) {
