@@ -69,7 +69,16 @@ if ($_SERVER['REQUEST_METHOD'] == 'POST') {
     $mensagem = $_POST['mensagem'];
     $arquivo_path = '';
 
+<<<<<<< HEAD
     // Processar upload do arquivo
+=======
+    if (empty($_POST['mensagem'])) {
+        $erros_envio[] = "O campo mensagem não pode estar vazio.";
+    }
+
+    // Processar upload do arquivo
+    $arquivo_path = '';
+>>>>>>> 249418c522ecfc780fbd512ea7b1495ce7a67ed0
     if ($_FILES['arquivo']['error'] == UPLOAD_ERR_OK) {
         $nome_temporario = $_FILES['arquivo']['tmp_name'];
         $nome_arquivo = $_FILES['arquivo']['name'];
@@ -90,10 +99,40 @@ if ($_SERVER['REQUEST_METHOD'] == 'POST') {
         }
     }
 
+<<<<<<< HEAD
     // Preparar dados para envio em massa
     foreach ($leads as $lead) {
         $numero = formatarNumeroWhatsApp($lead['numero']);
         $mensagem_personalizada = str_replace('{nome}', $lead['nome'], $mensagem);
+=======
+    // Preparar dados para envio
+    $data = [
+        'deviceId' => $dispositivo_id,
+        'number' => $numero,
+        'message' => $mensagem_personalizada
+    ];
+
+    // Adicionar arquivo se existir
+    if (!empty($arquivo_path) && file_exists($arquivo_path)) {
+        $data['mediaPath'] = $arquivo_path;
+    }
+
+    // Enviar mensagem via API
+    $ch = curl_init('http://localhost:3000/send-message');
+    curl_setopt_array($ch, [
+        CURLOPT_POST => true,
+        CURLOPT_POSTFIELDS => json_encode($data),
+        CURLOPT_HTTPHEADER => ['Content-Type: application/json'],
+        CURLOPT_RETURNTRANSFER => true,
+        CURLOPT_TIMEOUT => 30
+    ]);
+
+    // Verificar status do dispositivo (já existente)
+    if (!empty($_POST['dispositivo_id'])) {
+        $stmt = $pdo->prepare("SELECT status FROM dispositivos WHERE device_id = ? AND usuario_id = ?");
+        $stmt->execute([$_POST['dispositivo_id'], $_SESSION['usuario_id']]);
+        $device = $stmt->fetch();
+>>>>>>> 249418c522ecfc780fbd512ea7b1495ce7a67ed0
 
         $data = [
             'deviceId' => $dispositivo_id,
