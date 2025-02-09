@@ -74,19 +74,33 @@ if ($_SERVER['REQUEST_METHOD'] == 'POST') {
         $erros_envio[] = "O campo mensagem não pode estar vazio.";
     }
 
-    // Processamento do upload do arquivo
-    // Processamento do arquivo
+    
+   // Processamento do arquivo
 $arquivo_path = '';
-if ($_FILES['arquivo']['error'] == UPLOAD_ERR_OK) {
+if (isset($_FILES['arquivo']) && $_FILES['arquivo']['error'] == UPLOAD_ERR_OK) {
     $nome_temporario = $_FILES['arquivo']['tmp_name'];
     $nome_arquivo = $_FILES['arquivo']['name'];
-    $extensao = pathinfo($nome_arquivo, PATHINFO_EXTENSION);
+    $extensao = strtolower(pathinfo($nome_arquivo, PATHINFO_EXTENSION));
     $extensoes_permitidas = ['jpg', 'jpeg', 'png', 'pdf', 'doc', 'docx'];
+    $max_file_size = 5 * 1024 * 1024; // 5MB
 
-    if (in_array(strtolower($extensao), $extensoes_permitidas)) {
-        $nome_final = uniqid() . '.' . $extensao;
-        $arquivo_path = '../uploads/' . $nome_final;
+    // Validações do arquivo
+    if (!in_array($extensao, $extensoes_permitidas)) {
+        $erros_envio[] = "Tipo de arquivo não permitido. Extensões aceitas: " . implode(', ', $extensoes_permitidas);
+    } elseif ($_FILES['arquivo']['size'] > $max_file_size) {
+        $erros_envio[] = "Arquivo muito grande. Tamanho máximo permitido: 5MB";
+    } else {
+        // Criar diretório de uploads se não existir
+        $upload_dir = '../uploads';
+        if (!file_exists($upload_dir)) {
+            mkdir($upload_dir, 0777, true);
+        }
 
+        // Gerar nome único para o arquivo
+        $nome_final = uniqid('file_') . '_' . time() . '.' . $extensao;
+        $arquivo_path = $upload_dir . '/' . $nome_final;
+
+        // Mover arquivo
         if (!move_uploaded_file($nome_temporario, $arquivo_path)) {
             $erros_envio[] = "Erro ao mover o arquivo para o servidor.";
             $arquivo_path = '';
@@ -94,28 +108,104 @@ if ($_FILES['arquivo']['error'] == UPLOAD_ERR_OK) {
     }
 }
 
-// No loop de envio
-foreach ($leads as $lead) {
-    $data = [
-        'deviceId' => $dispositivo_id,
-        'number' => $numero,
-        'message' => $mensagem_personalizada
-    ];
+// Processamento do envio em massa
+if (empty($erros_envio)) {
+    $total_enviados = 0;
+    $falhas_envio = 0;
 
-    // Adicionar arquivo se existir
-    if (!empty($arquivo_path) && file_exists($arquivo_path)) {
-        $data['mediaPath'] = $arquivo_path;
+    foreach ($leads as $lead) {
+        try {
+            // Personalizar mensagem para cada lead
+            $mensagem_personalizada = str_replace(
+                ['{nome}', '{numero}'], 
+                [$lead['nome'], $lead['numero']], 
+                $mensagem_base
+            );
+
+            // Preparar dados para envio
+            $data = [
+                'deviceId' => $dispositivo_id,
+                'number' => formatarNumeroWhatsApp($lead['numero']),
+                'message' => $mensagem_personalizada
+            ];
+
+            // Adicionar arquivo se existir
+            if (!empty($arquivo_path) && file_exists($arquivo_path)) {
+                $data['mediaPath'] = $arquivo_path;
+                
+                // Verificar tipo de mídia
+                $mime_type = mime_content_type($arquivo_path);
+                $data['mediaType'] = explode('/', $mime_type)[0]; // 'image', 'application', etc
+            }
+
+            // Configurar requisição para API
+            $ch = curl_init('http://localhost:3000/send-message');
+            curl_setopt_array($ch, [
+                CURLOPT_POST => true,
+                CURLOPT_POSTFIELDS => json_encode($data),
+                CURLOPT_HTTPHEADER => [
+                    'Content-Type: application/json',
+                    'Authorization: Bearer ' . $token // Se necessário
+                ],
+                CURLOPT_RETURNTRANSFER => true,
+                CURLOPT_TIMEOUT => 30
+            ]);
+
+            // Executar requisição
+            $response = curl_exec($ch);
+            $http_code = curl_getinfo($ch, CURLINFO_HTTP_CODE);
+            
+            if ($response === false) {
+                throw new Exception('Erro CURL: ' . curl_error($ch));
+            }
+            
+            $result = json_decode($response, true);
+            
+            if ($http_code == 200 && isset($result['success']) && $result['success']) {
+                // Atualizar status do envio no banco
+                $stmt = $pdo->prepare("UPDATE leads_enviados SET 
+                    status = 'ENVIADO',
+                    data_envio = NOW(),
+                    arquivo_enviado = ?
+                    WHERE id = ?");
+                $stmt->execute([$arquivo_path ? $nome_final : null, $lead['id']]);
+                
+                $total_enviados++;
+            } else {
+                throw new Exception('Falha no envio: ' . ($result['message'] ?? 'Erro desconhecido'));
+            }
+
+            curl_close($ch);
+
+            // Intervalo entre envios para evitar bloqueio
+            sleep(rand(2, 5));
+
+        } catch (Exception $e) {
+            $falhas_envio++;
+            $erros_envio[] = "Erro ao enviar para {$lead['numero']}: " . $e->getMessage();
+            
+            // Registrar falha no banco
+            $stmt = $pdo->prepare("UPDATE leads_enviados SET 
+                status = 'FALHA',
+                erro_mensagem = ?
+                WHERE id = ?");
+            $stmt->execute([$e->getMessage(), $lead['id']]);
+        }
     }
 
-    // Envio para API...
-    $ch = curl_init('http://localhost:3000/send-message');
-    curl_setopt_array($ch, [
-        CURLOPT_POST => true,
-        CURLOPT_POSTFIELDS => json_encode($data),
-        CURLOPT_HTTPHEADER => ['Content-Type: application/json'],
-        CURLOPT_RETURNTRANSFER => true,
-        CURLOPT_TIMEOUT => 30
-    ]);
+    // Atualizar estatísticas do envio
+    $_SESSION['total_enviados'] = $total_enviados;
+    $_SESSION['falhas_envio'] = $falhas_envio;
+    
+    // Retornar resultado
+    $response = [
+        'success' => true,
+        'total_enviados' => $total_enviados,
+        'falhas' => $falhas_envio,
+        'erros' => $erros_envio
+    ];
+    
+    echo json_encode($response);
 }
 }
 ?>
